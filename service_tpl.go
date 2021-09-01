@@ -7,9 +7,6 @@ const (
 	import (
 		"context"
 		"github.com/google/wire"
-		"github.com/wwq-2020/go.common/rpc"
-		"github.com/wwq-2020/go.common/app"
-		"github.com/wwq-2020/go.common/log"
 		"{{.ProjectPkg}}/pkg/{{.Package}}/repo"
 		"{{.ProjectPkg}}/pkg/conf"
 		"{{.APIDocPkg}}"
@@ -22,20 +19,22 @@ const (
 
 	type service struct {
 		repo repo.Interface
+		conf *conf.Conf
 	}
 
 	// SuperSet SuperSet
-	var SuperSet = wire.NewSet(MustNew, repo.MustNew, conf.MustNew)
+	var SuperSet = wire.NewSet(MustNew, repo.MustNew)
 
 	// MustNew MustNew
-	func MustNew(repo repo.Interface) Interface{
+	func MustNew(repo repo.Interface, conf *conf.Conf) Interface{
 		return &service{
 			repo:repo,
+			conf:conf,
 		}
 	}
 	{{range $idx,$each := .APIs}}
 	func(s *service) {{$each.Name}}(ctx context.Context, req *{{$.ProjectName}}.{{$each.Req}}) (*{{$.ProjectName}}.{{$each.Resp}}, error){
-		return *{{$.ProjectName}}.{{$each.Resp}}{},nil
+		return &{{$.ProjectName}}.{{$each.Resp}}{},nil
 	}
 	{{end}}
 	`

@@ -6,20 +6,29 @@ const (
 
 	import (
 		"context"
-		"github.com/wwq-2020/go.common/rpc"
-		"github.com/wwq-2020/go.common/app"
-		"github.com/wwq-2020/go.common/log"
+		"flag"
+		"stash.weimob.com/devops/go_common/rpc"
+		"stash.weimob.com/devops/go_common/app"
+		"stash.weimob.com/devops/go_common/log"
+		"stash.weimob.com/devops/go_common/tracing"
+		"{{$.ProjectPkg}}/pkg/conf"
 		"{{.APIDocPkg}}"
 	)
+	var cfgPath = flag.String("config", "./conf/conf.toml", "-conf=./conf/conf.toml")
 	
 	func main() {
-		server := rpc.NewServer()
-		{{range $idx,$each := .Services}}{{$each.Package}}Service:=Create{{$each.Package}}Service()
-		{{$.ProjectName}}.Register{{$each.Name}}ToRPCServer(server, {{$each.Package}}Service){{end}}
+		flag.Parse()
+		conf := conf.MustParse(*cfgPath)
+		cleanup := tracing.MustInitGlobalTracer("{{$.ProjectName}}", conf.Tracing)
+		defer cleanup()
+		server := rpc.NewServer("{{$.ProjectName}}",conf.Server)
+		{{range $idx,$each := .Services}}{{$each.Package}}Service:=Create{{$each.Package}}Service(conf)
+		{{$.ProjectName}}.Register{{$each.Name}}RPCServer(server, {{$each.Package}}Service)
+		{{end}}
 		app.GoAsync(func(){
-			if err := server.ListenAndServe(); err != nil {
+			if err := server.Start(); err != nil {
 				log.WithError(err).
-					Fatal("failed to ListenAndServe")
+					Fatal("failed to Start")
 			}
 		})
 		app.AddShutdownHook(func() {

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"html/template"
 	"io/fs"
 	"io/ioutil"
@@ -15,19 +14,23 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/wwq-2020/go.common/log"
+	"stash.weimob.com/devops/go_common/log"
 )
 
 var (
-	serviceReg = regexp.MustCompile("func Register(.*)ToRPCServer")
+	serviceReg = regexp.MustCompile("func Register(.*)RPCServer\\(")
 	apiReg     = regexp.MustCompile("\t(.*)\\(context.Context, \\*(.*)\\) \\(\\*(.*), error\\)")
 )
 
 type mainData struct {
-	ProjectName string
-	APIDocPkg   string
-	ProjectPkg  string
-	Services    []*service
+	ProjectName       string
+	APIDocPkg         string
+	ProjectPkg        string
+	Services          []*service
+	DockerRegistryDEV string
+	DockerRegistryQA  string
+	DockerRegistryPL  string
+	DockerRegistryOL  string
 }
 
 type service struct {
@@ -46,10 +49,14 @@ type api struct {
 }
 
 type conf struct {
-	APIDocGit        string `json:"apidoc_git"`
-	Dir              string `json:"dir"`
-	APIDocPkg        string `json:"apidoc_pkg"`
-	ProjectPkgPrefix string `json:"project_pkg_prefix"`
+	APIDocGit         string `json:"apidoc_git"`
+	Dir               string `json:"dir"`
+	APIDocPkg         string `json:"apidoc_pkg"`
+	ProjectPkgPrefix  string `json:"project_pkg_prefix"`
+	DockerRegistryDEV string `json:"docker_registry_dev"`
+	DockerRegistryQA  string `json:"docker_registry_qa"`
+	DockerRegistryPL  string `json:"docker_registry_pl"`
+	DockerRegistryOL  string `json:"docker_registry_ol"`
 }
 
 func main() {
@@ -84,7 +91,7 @@ func main() {
 			Fatal("failed to Run")
 	}
 	cmd := exec.Command("git", "clone", conf.APIDocGit, apidocDir)
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = ioutil.Discard
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		log.WithError(err).
@@ -135,17 +142,21 @@ func main() {
 		log.WithError(err).
 			Fatal("failed to Walk")
 	}
-	cmdDir := path.Join(projectName, "cmd")
+	cmdDir := path.Join(projectName, "cmd", projectName)
 	if err = os.MkdirAll(cmdDir, 0744); err != nil {
 		log.WithError(err).
 			Fatal("failed to MkdirAll")
 	}
 	buf := bytes.NewBuffer(nil)
 	mainData := &mainData{
-		APIDocPkg:   path.Join(conf.APIDocPkg, conf.Dir, projectName),
-		ProjectPkg:  path.Join(conf.ProjectPkgPrefix, projectName),
-		ProjectName: projectName,
-		Services:    services,
+		APIDocPkg:         path.Join(conf.APIDocPkg, conf.Dir, projectName),
+		ProjectPkg:        path.Join(conf.ProjectPkgPrefix, projectName),
+		ProjectName:       projectName,
+		Services:          services,
+		DockerRegistryDEV: conf.DockerRegistryDEV,
+		DockerRegistryQA:  conf.DockerRegistryQA,
+		DockerRegistryPL:  conf.DockerRegistryPL,
+		DockerRegistryOL:  conf.DockerRegistryOL,
 	}
 
 	t, err := template.New("main_tpl").Funcs(template.FuncMap{}).Parse(mainTpl)
@@ -179,7 +190,7 @@ func main() {
 			Fatal("failed to WriteFile")
 	}
 	buf.Reset()
-	t, err = template.New("conf_tpl").Funcs(template.FuncMap{}).Parse(confTpl)
+	t, err = template.New("conf_go_tpl").Funcs(template.FuncMap{}).Parse(confGoTpl)
 	if err != nil {
 		log.WithError(err).
 			Fatal("failed to Parse")
@@ -193,9 +204,86 @@ func main() {
 		log.WithError(err).
 			Fatal("failed to MkdirAll")
 	}
-	confFile := path.Join(confDir, "conf.go")
+	confGoFile := path.Join(confDir, "conf.go")
+
+	if err := ioutil.WriteFile(confGoFile, buf.Bytes(), 0644); err != nil {
+		log.WithError(err).
+			Fatal("failed to WriteFile")
+	}
+
+	buf.Reset()
+	t, err = template.New("gitignore_tpl").Funcs(template.FuncMap{}).Parse(gitignoreTpl)
+	if err != nil {
+		log.WithError(err).
+			Fatal("failed to Parse")
+	}
+	if err := t.Execute(buf, mainData); err != nil {
+		log.WithError(err).
+			Fatal("failed to Execute")
+	}
+
+	gitignoreFile := path.Join(projectName, ".gitignore")
+
+	if err := ioutil.WriteFile(gitignoreFile, buf.Bytes(), 0644); err != nil {
+		log.WithError(err).
+			Fatal("failed to WriteFile")
+	}
+
+	buf.Reset()
+	t, err = template.New("conf_tpl").Funcs(template.FuncMap{}).Parse(confTpl)
+	if err != nil {
+		log.WithError(err).
+			Fatal("failed to Parse")
+	}
+	if err := t.Execute(buf, mainData); err != nil {
+		log.WithError(err).
+			Fatal("failed to Execute")
+	}
+
+	cfgDir := path.Join(projectName, "conf")
+	if err = os.MkdirAll(cfgDir, 0744); err != nil {
+		log.WithError(err).
+			Fatal("failed to MkdirAll")
+	}
+	confFile := path.Join(projectName, "conf", "conf.toml")
 
 	if err := ioutil.WriteFile(confFile, buf.Bytes(), 0644); err != nil {
+		log.WithError(err).
+			Fatal("failed to WriteFile")
+	}
+
+	buf.Reset()
+	t, err = template.New("dockerfile_tpl").Funcs(template.FuncMap{}).Parse(dockerfileTpl)
+	if err != nil {
+		log.WithError(err).
+			Fatal("failed to Parse")
+	}
+	if err := t.Execute(buf, mainData); err != nil {
+		log.WithError(err).
+			Fatal("failed to Execute")
+	}
+
+	dockerFile := path.Join(projectName, "Dockerfile")
+
+	if err := ioutil.WriteFile(dockerFile, buf.Bytes(), 0644); err != nil {
+		log.WithError(err).
+			Fatal("failed to WriteFile")
+	}
+
+	buf.Reset()
+	t, err = template.New("makefile_tpl").Funcs(template.FuncMap{}).Parse(makefielTpl)
+	if err != nil {
+		log.WithError(err).
+			Fatal("failed to Parse")
+	}
+	if err := t.Execute(buf, mainData); err != nil {
+		log.WithError(err).
+			Fatal("failed to Execute")
+	}
+
+	makeFile := path.Join(projectName, "Makefile")
+
+	if err := ioutil.WriteFile(makeFile, buf.Bytes(), 0644); err != nil {
 		log.WithError(err).
 			Fatal("failed to WriteFile")
 	}
@@ -252,21 +340,48 @@ func main() {
 				Fatal("failed to MkdirAll")
 		}
 	}
-	if err := os.Chdir(cmdDir); err != nil {
+	if err := os.Chdir(projectName); err != nil {
+		log.WithError(err).
+			Fatal("failed to Chdir")
+	}
+	modName := conf.ProjectPkgPrefix + "/" + projectName
+
+	cmd = exec.Command("go", "mod", "init", modName)
+	cmd.Stdout = ioutil.Discard
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.WithError(err).
+			Fatal("failed to modinit")
+	}
+	cmd = exec.Command("go", "mod", "tidy")
+	cmd.Stdout = ioutil.Discard
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.WithError(err).
+			Fatal("failed to modtidy")
+	}
+
+	if err := os.Chdir(path.Join("cmd", projectName)); err != nil {
 		log.WithError(err).
 			Fatal("failed to Chdir")
 	}
 	cmd = exec.Command("wire")
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = ioutil.Discard
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		log.WithError(err).
 			Fatal("failed to wire")
 	}
-
-	cmd = exec.Command("go", "mod", "init", "")
-	cmd.Stdout = os.Stdout
+	if err := os.Chdir("../.."); err != nil {
+		log.WithError(err).
+			Fatal("failed to Chdir")
+	}
+	cmd = exec.Command("go", "fmt", "./...")
+	cmd.Stdout = ioutil.Discard
 	cmd.Stderr = os.Stderr
-	fmt.Println(cmdDir, "------", err)
+	if err := cmd.Run(); err != nil {
+		log.WithError(err).
+			Fatal("failed to fmt")
+	}
 
 }

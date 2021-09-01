@@ -8,16 +8,15 @@ const (
 	
 	import (
 		"github.com/google/wire"
-		"github.com/wwq-2020/go.common/rpc"
-		"github.com/wwq-2020/go.common/app"
-		"github.com/wwq-2020/go.common/log"
-		{{range $idx,$each := .Services}}"{{$.ProjectPkg}}/pkg/{{$each.Package}}"{{end}}
+		"{{.ProjectPkg}}/pkg/conf"
+		{{range $idx,$each := .Services}}{{$each.Package}} "{{$.ProjectPkg}}/pkg/{{$each.Package}}/service"
+		{{end}}
 	)
 	
 	{{range $idx,$each := .Services}}
 	// Create{{$each.Package}}Service Create{{$each.Package}}Service
-	func Create{{$each.Package}}Service() {
-		panic(wire.Build({{$each.Package}}.MustNew))
+	func Create{{$each.Package}}Service(conf *conf.Conf) {{$each.Package}}.Interface{
+		panic(wire.Build({{$each.Package}}.SuperSet))
 	}
 	{{end}}
 	`
