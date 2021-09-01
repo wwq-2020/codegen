@@ -384,4 +384,12 @@ func main() {
 			Fatal("failed to fmt")
 	}
 
+	cmd = exec.Command("git", "init")
+	cmd.Stdout = ioutil.Discard
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.WithError(err).
+			Fatal("failed to gitinit")
+	}
+
 }
